@@ -216,7 +216,7 @@ def refine_textbox(im_arr, textdata):
 
     return textdata
 
-def sniff_text_colors(im, seginfo=None, min_samples=4, max_samples=4+4**2, max_texts=3):
+def sniff_text_colors(im, seginfo=None, min_samples=4, max_samples=4+4**2, max_texts=3, verbose=False):
     w,h = im.size
 
     xmin,ymin,xmax,ymax = 0,0,w,h
@@ -226,13 +226,15 @@ def sniff_text_colors(im, seginfo=None, min_samples=4, max_samples=4+4**2, max_t
             xs,ys = zip(*[p for p in mapregion['coordinates'][0]])
             xmin,ymin,xmax,ymax = min(xs),min(ys),max(xs),max(ys)
     bbox = [xmin,ymin,xmax,ymax]
-    print('sniffing inside', bbox)
+    if verbose:
+        print('sniffing inside', bbox)
 
     sw,sh = 300,300
     
     texts = []
     for i,q in enumerate(segmentation.sample_quads(bbox, (sw,sh))):
-        print('# sample',i,q)
+        if verbose:
+            print('# sample',i,q)
 
         # crop sample of image
         x1,y1,x2,y2 = q.bbox()
@@ -463,7 +465,7 @@ def sniff_text_colors(im, seginfo=None, min_samples=4, max_samples=4+4**2, max_t
 ##    return texts
 
 
-def extract_texts_parallel(im, textcolors, threshold=25, textconf=60, max_procs=None, tilesize=(500,500)):
+def extract_texts_parallel(im, textcolors, threshold=25, textconf=60, max_procs=None, tilesize=(500,500), verbose=False):
     w,h = im.size
     tw,th = map(int, tilesize)
     texts = []
@@ -537,10 +539,12 @@ def extract_texts_parallel(im, textcolors, threshold=25, textconf=60, max_procs=
 
         # initiate processes stepwise
         for i,box in enumerate(boxes):
-            print('processing img tile', box, i+1, 'of', len(boxes))
+            if verbose:
+                print('processing img tile', box, i+1, 'of', len(boxes))
             
             for textcolor,thresh in zip(textcolors, threshold):
-                print('color',textcolor)
+                if verbose:
+                    print('color',textcolor)
                 
                 # manual procs
                 p = pool.apply_async(extract_texts,
@@ -626,7 +630,7 @@ def extract_texts_parallel(im, textcolors, threshold=25, textconf=60, max_procs=
     return texts
 
 
-def extract_texts(im, textcolor, threshold=25, textconf=60, bbox=None):
+def extract_texts(im, textcolor, threshold=25, textconf=60, bbox=None, verbose=False):
     '''
     - textcolor is a single rgb color tupple, or a list of colors.
     - threshold can be either single value used for all colors, or iterable of thresholds same length as textcolors.
@@ -650,7 +654,8 @@ def extract_texts(im, textcolor, threshold=25, textconf=60, bbox=None):
     texts = []
     
     # upscale
-    print('upscaling')
+    if verbose:
+        print('upscaling')
     upscale = im.resize((im.size[0]*2,im.size[1]*2), PIL.Image.LANCZOS)
     #lab = segmentation.rgb_to_lab(upscale)
     #l,a,b = lab.split()
@@ -664,7 +669,8 @@ def extract_texts(im, textcolor, threshold=25, textconf=60, bbox=None):
     
     for col,colthresh in zip(textcolors,threshold):
         # calculate color difference
-        print('isolating color', col, colthresh)
+        if verbose:
+            print('isolating color', col, colthresh)
         diff = segmentation.color_difference(upscale, col)
 
         # mask based on color difference threshold
@@ -699,9 +705,11 @@ def extract_texts(im, textcolor, threshold=25, textconf=60, bbox=None):
         #PIL.Image.fromarray(imarr).show()
         
         # detect text
-        print('running ocr')
+        if verbose:
+            print('running ocr')
         data = run_ocr(lmaskim)
-        print('processing text')
+        if verbose:
+            print('processing text')
         for text in data:
             
             # process text
@@ -750,9 +758,10 @@ def extract_texts(im, textcolor, threshold=25, textconf=60, bbox=None):
 
     return texts
 
-def auto_detect_text(im, textcolor=None, colorthresh=25, textconf=60, parallel=False, sample=False, seginfo=None, max_procs=None, max_samples=8, max_texts=10, max_sniff_samples=4+4**2, max_sniff_texts=3):
+def auto_detect_text(im, textcolor=None, colorthresh=25, textconf=60, parallel=False, sample=False, seginfo=None, max_procs=None, max_samples=8, max_texts=10, max_sniff_samples=4+4**2, max_sniff_texts=3, verbose=False):
     if not textcolor:
-        print('sniffing text colors')
+        if verbose:
+            print('sniffing text colors')
         colorgroups = sniff_text_colors(im, seginfo=seginfo, max_samples=max_sniff_samples, max_texts=max_sniff_texts)
 
         # colors as color groupings
