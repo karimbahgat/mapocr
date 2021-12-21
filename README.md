@@ -8,7 +8,7 @@ Maps contain a lot of rich information such as text that might be useful to extr
 
 ## Installation
 
-To use this library, first install the Tesseract text recognition engine in your environment and make sure it's on your system's environment path. 
+To use this library, you need PIL, numpy, opencv, colormath, and pytesseract. You also need to manually install the Tesseract text recognition engine in your environment and make sure it's on your system's environment path. 
 
 
 ## Basic usage
