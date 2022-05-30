@@ -19,11 +19,16 @@ except:
 #pytesseract.pytesseract.tesseract_cmd = 'C:/Program Files/Tesseract-OCR/tesseract'
 
 
-def run_ocr(im, bbox=None, mode=11):
+def run_ocr(im, bbox=None, mode=11, lang=None):
     if bbox:
         xoff,yoff = bbox[:2]
         im = im.crop(bbox)
-    data = pytesseract.image_to_data(im, lang='eng', config='--psm {}'.format(mode)) # +equ
+    if not lang:
+        # unless specfified, detect all available languages
+        langs = pytesseract.get_languages()
+        lang = '+'.join(langs)
+    print('lang',lang)
+    data = pytesseract.image_to_data(im, lang=lang, config='--psm {}'.format(mode)) # +equ
     #data = pytesseract.image_to_data(im, lang='eng+fra', config='--psm {} --tessdata-dir "{}"'.format(mode, r'C:\Users\kimok\Desktop\tessdata_fast')) # +equ
     drows = [[v for v in row.split('\t')] for row in data.split('\n')]
     dfields = drows.pop(0)
@@ -216,7 +221,7 @@ def refine_textbox(im_arr, textdata):
 
     return textdata
 
-def sniff_text_colors(im, seginfo=None, min_samples=4, max_samples=4+4**2, max_texts=3, verbose=False):
+def sniff_text_colors(im, seginfo=None, min_samples=4, max_samples=4+4**2, max_texts=3, lang=None, verbose=False):
     w,h = im.size
 
     xmin,ymin,xmax,ymax = 0,0,w,h
@@ -247,7 +252,7 @@ def sniff_text_colors(im, seginfo=None, min_samples=4, max_samples=4+4**2, max_t
         # upscale and run ocr
         lup = l.resize((l.size[0]*2,l.size[1]*2), PIL.Image.LANCZOS)
         #lup.show()
-        data = run_ocr(lup)
+        data = run_ocr(lup, lang=lang)
 
         # loop detected texts
         for text in data:
@@ -465,7 +470,7 @@ def sniff_text_colors(im, seginfo=None, min_samples=4, max_samples=4+4**2, max_t
 ##    return texts
 
 
-def extract_texts_parallel(im, textcolors, threshold=25, textconf=60, max_procs=None, tilesize=(500,500), verbose=False):
+def extract_texts_parallel(im, textcolors, threshold=25, textconf=60, max_procs=None, tilesize=(500,500), lang=None, verbose=False):
     w,h = im.size
     tw,th = map(int, tilesize)
     texts = []
@@ -553,6 +558,7 @@ def extract_texts_parallel(im, textcolors, threshold=25, textconf=60, max_procs=
                                                threshold=thresh,
                                                textconf=textconf,
                                                bbox=box,
+                                               lang=lang,
                                                ),
                                      )
                 procs.append(p)
@@ -630,7 +636,7 @@ def extract_texts_parallel(im, textcolors, threshold=25, textconf=60, max_procs=
     return texts
 
 
-def extract_texts(im, textcolor, threshold=25, textconf=60, bbox=None, verbose=False):
+def extract_texts(im, textcolor, threshold=25, textconf=60, bbox=None, lang=None, verbose=False):
     '''
     - textcolor is a single rgb color tupple, or a list of colors.
     - threshold can be either single value used for all colors, or iterable of thresholds same length as textcolors.
@@ -707,7 +713,7 @@ def extract_texts(im, textcolor, threshold=25, textconf=60, bbox=None, verbose=F
         # detect text
         if verbose:
             print('running ocr')
-        data = run_ocr(lmaskim)
+        data = run_ocr(lmaskim, lang=lang)
         if verbose:
             print('processing text')
         for text in data:
@@ -758,11 +764,11 @@ def extract_texts(im, textcolor, threshold=25, textconf=60, bbox=None, verbose=F
 
     return texts
 
-def auto_detect_text(im, textcolor=None, colorthresh=25, textconf=60, parallel=False, sample=False, seginfo=None, max_procs=None, max_samples=8, max_texts=10, max_sniff_samples=4+4**2, max_sniff_texts=3, verbose=False):
+def auto_detect_text(im, textcolor=None, colorthresh=25, textconf=60, parallel=False, sample=False, seginfo=None, max_procs=None, max_samples=8, max_texts=10, max_sniff_samples=4+4**2, max_sniff_texts=3, lang=None, verbose=False):
     if not textcolor:
         if verbose:
             print('sniffing text colors')
-        colorgroups = sniff_text_colors(im, seginfo=seginfo, max_samples=max_sniff_samples, max_texts=max_sniff_texts)
+        colorgroups = sniff_text_colors(im, seginfo=seginfo, max_samples=max_sniff_samples, max_texts=max_sniff_texts, lang=lang)
 
         # colors as color groupings
         textcolors = list(colorgroups.keys())
@@ -829,11 +835,11 @@ def auto_detect_text(im, textcolor=None, colorthresh=25, textconf=60, parallel=F
 
     # run text detection
     if sample:
-        texts = sample_texts(im, textcolors, threshold=colorthresh, textconf=textconf, max_samples=max_samples, max_texts=max_texts)
+        texts = sample_texts(im, textcolors, threshold=colorthresh, textconf=textconf, max_samples=max_samples, max_texts=max_texts, lang=lang)
     elif parallel:
-        texts = extract_texts_parallel(im, textcolors, threshold=colorthresh, textconf=textconf, max_procs=max_procs)
+        texts = extract_texts_parallel(im, textcolors, threshold=colorthresh, textconf=textconf, max_procs=max_procs, lang=lang)
     else:
-        texts = extract_texts(im, textcolors, threshold=colorthresh, textconf=textconf)
+        texts = extract_texts(im, textcolors, threshold=colorthresh, textconf=textconf, lang=lang)
     
 ##    for t in texts:
 ##        print t
