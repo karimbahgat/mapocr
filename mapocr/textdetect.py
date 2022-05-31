@@ -19,14 +19,26 @@ except:
 #pytesseract.pytesseract.tesseract_cmd = 'C:/Program Files/Tesseract-OCR/tesseract'
 
 
+# autodetect best lang function
+# https://nanonets.com/blog/ocr-with-tesseract/#:~:text=Unfortunately%20tesseract%20does%20not%20have,can%20be%20installed%20via%20pip.
+# https://stackoverflow.com/questions/70198974/how-to-detect-language-or-script-from-an-input-image-using-python-or-tesseract-o
+# 1. OCR1: osd = pytesseract.image_to_osd(img)
+# 2. Find "Script: ..."
+# 3. Map all script names to lang names (https://github.com/tesseract-ocr/tessdata/tree/main/script)
+# 4. OCR2: Do ocr using the script-lang detected from script
+# 5. from langdetect import detect_langs; detect_langs(txt)
+# 6. OCR3: use these langs for a final ocr.
+
+
 def run_ocr(im, bbox=None, mode=11, lang=None):
     if bbox:
         xoff,yoff = bbox[:2]
         im = im.crop(bbox)
     if not lang:
         # unless specfified, detect all available languages
-        langs = pytesseract.get_languages()
-        lang = '+'.join(langs)
+        #langs = pytesseract.get_languages()
+        #lang = '+'.join(langs)
+        lang = None
     print('lang',lang)
     data = pytesseract.image_to_data(im, lang=lang, config='--psm {}'.format(mode)) # +equ
     #data = pytesseract.image_to_data(im, lang='eng+fra', config='--psm {} --tessdata-dir "{}"'.format(mode, r'C:\Users\kimok\Desktop\tessdata_fast')) # +equ
