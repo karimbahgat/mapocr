@@ -139,8 +139,8 @@ def run_ocr(im, bbox=None, mode=11, lang=None):
         xoff,yoff = bbox[:2]
         im = im.crop(bbox)
     if not lang:
-        # unless specified, look for any of the official UN languages
-        lang = 'eng+fra+rus+ara+spa+chi_sim'
+        # unless specified, assume english
+        lang = 'eng'
         # or autodetect language
         # langs = detect_language(im)
         # print('detected language counts', langs)
