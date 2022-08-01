@@ -430,4 +430,41 @@ def sample_quads(bbox, samplesize):
         if intersects_centroid >= 4:
             break
 
+def iter_tiles(width, height, max_tile_size, tile_overlap=0.1):
+    '''Dissect an image size into equally sized tiles and iterate through them'''
+    max_tw,max_th = max_tile_size
+
+    # how many times would max tile width and height fit in bbox
+    tw_count = width / max_tw
+    th_count = height / max_th
+    
+    # divide by next integer up to calc optimal tile_size
+    tw = width / math.ceil(tw_count)
+    th = height / math.ceil(th_count)
+
+    # if the tile size is not an equal nr
+    # round up to next integer
+    # the last tile will be clipped to not extend beyond edge
+    tw = math.ceil(tw)
+    th = math.ceil(th)
+
+    # iterate through tiles
+    for row in range(0, height, th):
+        row2 = min(row+th-1, height-1) # dont extend beyond edge
+        
+        rowdiff = row2-row
+        row_pad = int(rowdiff * tile_overlap)
+        row = max(row-row_pad, 0)
+        row2 = min(row2+row_pad, height-1)
+        
+        for col in range(0, width, tw):
+            col2 = min(col+tw-1, width-1) # dont extend beyond edge
+
+            coldiff = col2-col
+            col_pad = int(coldiff * tile_overlap)
+            col = max(col-col_pad, 0)
+            col2 = min(col2+col_pad, width-1)
+
+            bbox = (col,row,col2,row2)
+            yield bbox
 

@@ -6,6 +6,8 @@ import PIL, PIL.Image
 from PIL import ImageOps
 
 import re
+import json
+import os
 
 import pytesseract
 
@@ -19,27 +21,135 @@ except:
 #pytesseract.pytesseract.tesseract_cmd = 'C:/Program Files/Tesseract-OCR/tesseract'
 
 
-# autodetect best lang function
-# https://nanonets.com/blog/ocr-with-tesseract/#:~:text=Unfortunately%20tesseract%20does%20not%20have,can%20be%20installed%20via%20pip.
-# https://stackoverflow.com/questions/70198974/how-to-detect-language-or-script-from-an-input-image-using-python-or-tesseract-o
-# 1. OCR1: osd = pytesseract.image_to_osd(img)
-# 2. Find "Script: ..."
-# 3. Map all script names to lang names (https://github.com/tesseract-ocr/tessdata/tree/main/script)
-# 4. OCR2: Do ocr using the script-lang detected from script
-# 5. from langdetect import detect_langs; detect_langs(txt)
-# 6. OCR3: use these langs for a final ocr.
+def detect_script(im):
+    try:
+        # some special quirks to osd detection, like it has to be saved to disk
+        # and min_characters_to_try should be lowered
+        # https://stackoverflow.com/questions/54047116/getting-an-error-when-using-the-image-to-osd-method-with-pytesseract
+        if hasattr(im, 'save'):
+            im.save('temp.png')
+        osd = pytesseract.image_to_osd(im, config='-c min_characters_to_try=10')
+        script = re.search("Script: ([a-zA-Z]+)\n", osd).group(1)
+        conf = re.search("Script confidence: (\d+\.?(\d+)?)", osd).group(1)
+        return script, float(conf)
+    except e:
+        return None, 0.0
 
+def script_to_lang(script):
+    # mapping from tesseract script names to iso3 langs
+    dct = {'Arabic':'ara',
+           'Armenian':'hye',
+           'Bengali':'ben',
+           'Canadian_Aboriginal':None,
+           'Cherokee':'chr',
+           'Cyrillic':'rus+uzb_cyrl+aze_cyrl+bel+ukr+bul+srp+mkd+taj+kaz+kir+tat',
+           'Devanagari':'mar+san+hin+nep+snd',
+           'Ethiopic':'amh+tir',
+           'Fraktur':None,
+           'Georgian':'kat',
+           'Greek':'ell',
+           'Gujarati':None,
+           'Gurmukhi':None,
+           'HanS':'chi_sim',
+           'HanS_vert':'chi_sim_vert',
+           'HanT':'chi_tra',
+           'HanT_vert':'chi_tra_vert',
+           'Hangul':'kor',
+           'Hangul_vert':'kor_vert',
+           'Hebrew':'heb',
+           'Japanese':'jpn',
+           'Japanese_vert':'jpn',
+           'Kannada':'kan',
+           'Khmer':'khm',
+           'Lao':'lao',
+           'Latin':'lat',
+           'Malayalam':'mal',
+           'Myanmar':'mya',
+           'Oriya':'ori',
+           'Sinhala':'sin',
+           'Syriac':'syr',
+           'Tamil':'tam',
+           'Telugu':'tel',
+           'Thaana':None,
+           'Thai':'tha',
+           'Tibetan':'bod',
+           'Vietnamese':'vie',
+           }
+    return dct[script]
+
+def detect_language(im):
+    # autodetect best lang function
+    # https://nanonets.com/blog/ocr-with-tesseract/#:~:text=Unfortunately%20tesseract%20does%20not%20have,can%20be%20installed%20via%20pip.
+    # https://stackoverflow.com/questions/70198974/how-to-detect-language-or-script-from-an-input-image-using-python-or-tesseract-o
+    # ALT1: based on script detection
+    if 0:
+        # get script
+        script, confidence = detect_script(im)
+        # map all script names to lang names (https://github.com/tesseract-ocr/tessdata/tree/main/script)
+        lang = script_to_lang(script)
+        # do ocr using the script-lang detected from script
+        from langdetect import detect_langs, DetectorFactory
+        DetectorFactory.seed = 0 # this might have to happen at top of script? 
+        langprobs = detect_langs(txt)
+        langs = [langprob.lang for langprob in langprobs]
+    # ALT2: based on osd language, which picks up multiple languages 
+    # but is not very accurate
+    else:
+        # detect arbitrary languages with osd-language
+        texts = run_ocr(im, mode=12, lang='osd')
+        texts = [t['text'] for t in texts
+                if t['conf']>0.6 and len(t['text'])>=2]
+        print('detecting languages based on', texts)
+        # classify the language based on detected texts
+        from langdetect import detect_langs, DetectorFactory
+        DetectorFactory.seed = 0 # this might have to happen at top of script? 
+        langcounts = {}
+        for text in texts:
+            try:
+                langprobs = detect_langs(text)
+            except:
+                continue
+            best = langprobs[0]
+            lang,prob = best.lang, best.prob
+            lang = lang.split('-')[0] # ignore parts after dash
+            lang = lang.replace('ko','zh') # hacky make korean to chinese
+            if prob > 0.9:
+                count = langcounts.get(lang, 0)
+                langcounts[lang] = count + 1
+        langs = sorted(langcounts.items(), key=lambda x: x[1], reverse=True)
+        # look for any language with more than one texts detected... 
+        langs = [(lang,count) for lang,count in langs if count >= 2]
+
+    # convert from iso2 to iso3 langs
+    # NOTE: might have to lookup alternative '639-2/B' for some langs
+    datafold = os.path.dirname(os.path.abspath(__file__))
+    with open(datafold+'/data/'+'iso-langs.json', encoding='utf8') as fobj:
+        lang2to3 = json.loads(fobj.read())
+    langs = [(lang2to3[l]['639-2'],c) 
+            for l,c in langs
+            if l in lang2to3] # convert from iso2 to iso3
+    langs = [(l.replace('zho','chi_sim'),c) 
+            for l,c in langs] # manual override to special tesseract chinese code
+    return langs
 
 def run_ocr(im, bbox=None, mode=11, lang=None):
+    # maybe consider mode 12, parse text with osd
+    # detects multiple scripts, but not as accurate... 
     if bbox:
         xoff,yoff = bbox[:2]
         im = im.crop(bbox)
     if not lang:
-        # unless specfified, detect all available languages
-        #langs = pytesseract.get_languages()
-        #lang = '+'.join(langs)
-        lang = None
-    print('lang',lang)
+        # unless specified, look for any of the official UN languages
+        lang = 'eng+fra+rus+ara+spa+chi_sim'
+        # or autodetect language
+        # langs = detect_language(im)
+        # print('detected language counts', langs)
+        # #langs = langs[:1] # top first only
+        # if langs:
+        #     lang = '+'.join([l[0] for l in langs])
+        # else:
+        #     lang = 'eng' # default to english
+    print('lang', lang)
     data = pytesseract.image_to_data(im, lang=lang, config='--psm {}'.format(mode)) # +equ
     #data = pytesseract.image_to_data(im, lang='eng+fra', config='--psm {} --tessdata-dir "{}"'.format(mode, r'C:\Users\kimok\Desktop\tessdata_fast')) # +equ
     drows = [[v for v in row.split('\t')] for row in data.split('\n')]
@@ -776,7 +886,60 @@ def extract_texts(im, textcolor, threshold=25, textconf=60, bbox=None, lang=None
 
     return texts
 
-def auto_detect_text(im, textcolor=None, colorthresh=25, textconf=60, parallel=False, sample=False, seginfo=None, max_procs=None, max_samples=8, max_texts=10, max_sniff_samples=4+4**2, max_sniff_texts=3, lang=None, verbose=False):
+def extract_texts_tiled(im, textcolor, threshold=25, textconf=60, max_imsize=None, lang=None, verbose=False):
+    def exclude_edge_texts(texts, bbox):
+        'Exclude texts touching the edges of the bbox'
+        def is_edge_text(text):
+            left,top,width,height = [int(text[key]) for key in 'left top width height'.split()]
+            right,bottom = left+width, top+height
+            if left == bbox[0] \
+                or right == bbox[2] \
+                or top == bbox[1] \
+                or bottom == bbox[3]:
+                return True
+        texts = [t for t in texts if not is_edge_text(t)]
+        return texts
+
+    def remove_duplicate_texts(texts):
+        remove_list = set()
+        for i,r in enumerate(texts):
+            for i2,r2 in enumerate(texts):
+                # find texts that overlap
+                if not (r['left'] > (r2['left']+r2['width']) \
+                        or (r['left']+r['width']) < r2['left'] \
+                        or r['top'] > (r2['top']+r2['height']) \
+                        or (r['top']+r['height']) < r2['top'] \
+                        ):
+                    # drop the one with the poorest confidence
+                    if r['conf'] < r2['conf']:
+                        remove_list.add(i)
+        # remove from list
+        texts = [t for i,t in enumerate(texts) if i not in remove_list]
+        if verbose:
+            print(f'removed {len(remove_list)} duplicate texts')
+        return texts
+
+    # tiled approach
+    max_imsize = max_imsize or (2000,2000)
+    assert len(max_imsize) == 2
+    w,h = im.size
+
+    # iter tiles
+    texts = []
+    tiles = list(segmentation.iter_tiles(w, h, max_imsize))
+    for i,tilebox in enumerate(tiles):
+        if verbose:
+            print('processing img tile', tilebox, i+1, 'of', len(tiles))
+        _texts = extract_texts(im, textcolor, bbox=tilebox, threshold=threshold, textconf=textconf, lang=lang)
+        _texts = exclude_edge_texts(_texts, tilebox)
+        texts += _texts
+
+    # remove duplicates in overlapping areas
+    texts = remove_duplicate_texts(texts)
+    
+    return texts
+
+def auto_detect_text(im, textcolor=None, colorthresh=25, textconf=60, parallel=False, sample=False, seginfo=None, max_procs=None, max_imsize=None, max_samples=8, max_texts=10, max_sniff_samples=4+4**2, max_sniff_texts=3, lang=None, verbose=False):
     if not textcolor:
         if verbose:
             print('sniffing text colors')
@@ -851,7 +1014,7 @@ def auto_detect_text(im, textcolor=None, colorthresh=25, textconf=60, parallel=F
     elif parallel:
         texts = extract_texts_parallel(im, textcolors, threshold=colorthresh, textconf=textconf, max_procs=max_procs, lang=lang)
     else:
-        texts = extract_texts(im, textcolors, threshold=colorthresh, textconf=textconf, lang=lang)
+        texts = extract_texts_tiled(im, textcolors, threshold=colorthresh, textconf=textconf, max_imsize=max_imsize, lang=lang)
     
 ##    for t in texts:
 ##        print t
