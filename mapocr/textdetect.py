@@ -481,116 +481,180 @@ def sniff_text_colors(im, seginfo=None, min_samples=4, max_samples=4+4**2, max_t
         colorgroups[col] = [(subcol,coldiffs[textcolors.index(subcol)]) for subcol in colorgroups[col]]
     return colorgroups
 
-##def sample_texts(im, textcolors, threshold=25, textconf=60, samplesize=(300,300), max_samples=8, max_texts=10):
-##    # REMEMBER: update text processing/filtering to be same as extract_texts(), maybe by calling it?
-##    # ...
-##    raise Exception('Sample extraction of texts not finished, must be updated to be same as extract_texts()')
-##
-##    w,h = im.size
-##    sw,sh = samplesize
-##    texts = []
-##    
-##    # for each sample
-####        for _ in range(samples):
-####            print _
-####            x,y = uniform(0,w-sw),uniform(0,h-sh)
-##    
-##    for i,q in enumerate(segmentation.sample_quads(im, (sw,sh))):
-##        #print '---'
-##        print '# sample',i,q
-##        x1,y1,x2,y2 = q.bbox()
-##        sample = im.crop((x1,y1,x2,y2))
-##        # upscale
-##        print 'upscaling'
-##        upscale = sample.resize((sample.size[0]*2,sample.size[1]*2), PIL.Image.LANCZOS)
-##        #lab = segmentation.rgb_to_lab(upscale)
-##        #l,a,b = lab.split()
-##        upscale = segmentation.quantize(upscale)
-##        #upscale.show()
-##        for col in textcolors:
-##            # calculate color difference
-##            print 'isolating color'
-##            diff = segmentation.color_difference(upscale, col)
-##
-##            # mask based on color difference threshold
-##            diffmask = diff > threshold
-##
-##            # maybe dilate to get edges?
-####                from PIL import ImageMorph
-####                diffmask = PIL.Image.fromarray(255-diffmask*255).convert('L')
-####                op = ImageMorph.MorphOp(op_name='dilation8')
-####                changes,diffmask = op.apply(diffmask)
-####                diffmask = np.array(diffmask) == 0
-####                # mask to luminance
-####                lmask = np.array(l)
-####                lmask[diffmask] = lmask.max() # cap max luminance to parts that are too different
-##
-##            # OR mask to diff values
-##            diff[diffmask] = threshold
-##            lmask = diff
-##
-##            # normalize
-##            lmax,lmin = lmask.max(),lmask.min()
-##            lmask = (lmask-lmin) / float(lmax-lmin) * 255.0
-##            #print lmask.min(),lmask.max()
-##            lmaskim = PIL.Image.fromarray(lmask.astype(np.uint8))
-##            #lmaskim.show()
-##            
-##            # detect text
-##            print 'running ocr'
-##            data = run_ocr(lmaskim)
-##            
-##            print 'processing text'
-##            for text in data:
-##                
-##                # process text
-##                if float(text['conf']) > textconf and len(text['text']) >= 2:
-##                    
-##                    # clean text
-##                    text['text_clean'] = re.sub('^\\W+|\\W+$', '', text['text'], flags=re.UNICODE) # strips nonalpha chars from start/end
-##
-##                    # ignore nontoponyms
-##                    if not text['text_clean'].replace(' ',''):
-##                        # empty text
-##                        continue
-##                    if not any((ch.isalpha() for ch in text['text_clean'])):
-##                        # does not contain any alpha chars
-##                        continue
-##                    if len([ch for ch in text['text_clean'] if ch.isupper()]) > len(text['text_clean']) / 2:
-##                        # more than half of characters is uppercase
-##                        continue
-##
-##                    # record info
-##                    text['color'] = col
-##
-##                    # downscale coords
-##                    for key in 'left top width height'.split():
-##                        text[key] = int( round(text[key] / 2.0) )
-##
-##                    # ignore tiny text
-##                    if text['width'] <= 4 or text['height'] <= 4:
-##                        continue
-##
-##                    # ignore text along edges (could be cutoff)
-##                    edgebuff = text['height']
-##                    if text['left'] < edgebuff or text['top'] < edgebuff \
-##                       or (text['left']+text['width']) > sw-edgebuff or (text['top']+text['height']) > sh-edgebuff:
-##                        #print 'edge case',text
-##                        #print [edgebuff,edgebuff,sw-edgebuff,sh-edgebuff]
-##                        continue
-##
-##                    # convert sample space to image space
-##                    text['left'] = int(x1 + text['left'])
-##                    text['top'] = int(y1 + text['top'])
-##                    texts.append(text)
-##
-##        print 'texts',len(texts)
-##        if i >= 3:
-##            if len(texts) >= max_texts or i >= max_samples:
-##                break
-##                
-##    return texts
+def sample_texts(im, textcolors, threshold=25, textconf=60, samplesize=(1000,1000), min_texts=6, max_samples=4*3, lang=None, verbose=False):
+    def exclude_edge_texts(texts, bbox):
+        'Exclude texts touching the edges of the bbox'
+        def is_edge_text(text):
+            left,top,width,height = [int(text[key]) for key in 'left top width height'.split()]
+            right,bottom = left+width, top+height
+            if left == bbox[0] \
+                or right == bbox[2] \
+                or top == bbox[1] \
+                or bottom == bbox[3]:
+                return True
+        texts = [t for t in texts if not is_edge_text(t)]
+        return texts
 
+    def remove_duplicate_texts(texts):
+        remove_list = set()
+        for i,r in enumerate(texts):
+            for i2,r2 in enumerate(texts):
+                # find texts that overlap
+                if not (r['left'] > (r2['left']+r2['width']) \
+                        or (r['left']+r['width']) < r2['left'] \
+                        or r['top'] > (r2['top']+r2['height']) \
+                        or (r['top']+r['height']) < r2['top'] \
+                        ):
+                    # drop the one with the poorest confidence
+                    if r['conf'] < r2['conf']:
+                        remove_list.add(i)
+        # remove from list
+        texts = [t for i,t in enumerate(texts) if i not in remove_list]
+        if verbose:
+            print(f'removed {len(remove_list)} duplicate texts')
+        return texts
+
+    # sample approach
+    sw,sh = samplesize
+    texts = []
+
+    # iter samples
+    texts = []
+    min_samples = 4
+    im_bbox = 0, 0, im.width, im.height
+    iter_samples = segmentation.sample_quads(im_bbox, (sw,sh))
+    for i,q in enumerate(iter_samples):
+        if True: #verbose:
+            #print('---')
+            print('# sample',i,q)
+
+        samplebox = q.bbox()
+        _texts = extract_texts(im, textcolors, bbox=samplebox, threshold=threshold, textconf=textconf, lang=lang)
+        _texts = exclude_edge_texts(_texts, samplebox)
+        texts += _texts
+
+        # exit if meets minimum requirement
+        if ((i+1) >= min_samples) and (len(texts) >= min_texts):
+            break
+
+        # prevent from too much sampling
+        if (i+1) >= max_samples:
+            break
+
+    # remove duplicates in overlapping areas
+    texts = remove_duplicate_texts(texts)
+    
+    return texts
+
+# def sample_texts(im, textcolors, threshold=25, textconf=60, samplesize=(300,300), max_samples=8, max_texts=10):
+#    # REMEMBER: update text processing/filtering to be same as extract_texts(), maybe by calling it?
+#    # ...
+#    #raise Exception('Sample extraction of texts not finished, must be updated to be same as extract_texts()')
+
+#    w,h = im.size
+#    sw,sh = samplesize
+#    texts = []
+   
+#    # for each sample
+# ##        for _ in range(samples):
+# ##            print _
+# ##            x,y = uniform(0,w-sw),uniform(0,h-sh)
+   
+#    for i,q in enumerate(segmentation.sample_quads(im, (sw,sh))):
+#        #print '---'
+#        print '# sample',i,q
+#        x1,y1,x2,y2 = q.bbox()
+#        sample = im.crop((x1,y1,x2,y2))
+#        # upscale
+#        print 'upscaling'
+#        upscale = sample.resize((sample.size[0]*2,sample.size[1]*2), PIL.Image.LANCZOS)
+#        #lab = segmentation.rgb_to_lab(upscale)
+#        #l,a,b = lab.split()
+#        upscale = segmentation.quantize(upscale)
+#        #upscale.show()
+#        for col in textcolors:
+#            # calculate color difference
+#            print 'isolating color'
+#            diff = segmentation.color_difference(upscale, col)
+
+#            # mask based on color difference threshold
+#            diffmask = diff > threshold
+
+#            # maybe dilate to get edges?
+# ##                from PIL import ImageMorph
+# ##                diffmask = PIL.Image.fromarray(255-diffmask*255).convert('L')
+# ##                op = ImageMorph.MorphOp(op_name='dilation8')
+# ##                changes,diffmask = op.apply(diffmask)
+# ##                diffmask = np.array(diffmask) == 0
+# ##                # mask to luminance
+# ##                lmask = np.array(l)
+# ##                lmask[diffmask] = lmask.max() # cap max luminance to parts that are too different
+
+#            # OR mask to diff values
+#            diff[diffmask] = threshold
+#            lmask = diff
+
+#            # normalize
+#            lmax,lmin = lmask.max(),lmask.min()
+#            lmask = (lmask-lmin) / float(lmax-lmin) * 255.0
+#            #print lmask.min(),lmask.max()
+#            lmaskim = PIL.Image.fromarray(lmask.astype(np.uint8))
+#            #lmaskim.show()
+           
+#            # detect text
+#            print 'running ocr'
+#            data = run_ocr(lmaskim)
+           
+#            print 'processing text'
+#            for text in data:
+               
+#                # process text
+#                if float(text['conf']) > textconf and len(text['text']) >= 2:
+                   
+#                    # clean text
+#                    text['text_clean'] = re.sub('^\\W+|\\W+$', '', text['text'], flags=re.UNICODE) # strips nonalpha chars from start/end
+
+#                    # ignore nontoponyms
+#                    if not text['text_clean'].replace(' ',''):
+#                        # empty text
+#                        continue
+#                    if not any((ch.isalpha() for ch in text['text_clean'])):
+#                        # does not contain any alpha chars
+#                        continue
+#                    if len([ch for ch in text['text_clean'] if ch.isupper()]) > len(text['text_clean']) / 2:
+#                        # more than half of characters is uppercase
+#                        continue
+
+#                    # record info
+#                    text['color'] = col
+
+#                    # downscale coords
+#                    for key in 'left top width height'.split():
+#                        text[key] = int( round(text[key] / 2.0) )
+
+#                    # ignore tiny text
+#                    if text['width'] <= 4 or text['height'] <= 4:
+#                        continue
+
+#                    # ignore text along edges (could be cutoff)
+#                    edgebuff = text['height']
+#                    if text['left'] < edgebuff or text['top'] < edgebuff \
+#                       or (text['left']+text['width']) > sw-edgebuff or (text['top']+text['height']) > sh-edgebuff:
+#                        #print 'edge case',text
+#                        #print [edgebuff,edgebuff,sw-edgebuff,sh-edgebuff]
+#                        continue
+
+#                    # convert sample space to image space
+#                    text['left'] = int(x1 + text['left'])
+#                    text['top'] = int(y1 + text['top'])
+#                    texts.append(text)
+
+#        print 'texts',len(texts)
+#        if i >= 3:
+#            if len(texts) >= max_texts or i >= max_samples:
+#                break
+               
+#    return texts
 
 def extract_texts_parallel(im, textcolors, threshold=25, textconf=60, max_procs=None, tilesize=(500,500), lang=None, verbose=False):
     w,h = im.size
@@ -939,7 +1003,7 @@ def extract_texts_tiled(im, textcolor, threshold=25, textconf=60, max_imsize=Non
     
     return texts
 
-def auto_detect_text(im, textcolor=None, colorthresh=25, textconf=60, parallel=False, sample=False, seginfo=None, max_procs=None, max_imsize=None, max_samples=8, max_texts=10, max_sniff_samples=4+4**2, max_sniff_texts=3, lang=None, verbose=False):
+def auto_detect_text(im, textcolor=None, colorthresh=25, textconf=60, parallel=False, sample=False, samplesize=(1000,1000), seginfo=None, max_procs=None, max_imsize=None, min_texts=6, max_samples=4*3, max_sniff_samples=4+4**2, max_sniff_texts=3, lang=None, verbose=False):
     if not textcolor:
         if verbose:
             print('sniffing text colors')
@@ -1010,7 +1074,7 @@ def auto_detect_text(im, textcolor=None, colorthresh=25, textconf=60, parallel=F
 
     # run text detection
     if sample:
-        texts = sample_texts(im, textcolors, threshold=colorthresh, textconf=textconf, max_samples=max_samples, max_texts=max_texts, lang=lang)
+        texts = sample_texts(im, textcolors, threshold=colorthresh, textconf=textconf, samplesize=samplesize, min_texts=min_texts, max_samples=max_samples, lang=lang)
     elif parallel:
         texts = extract_texts_parallel(im, textcolors, threshold=colorthresh, textconf=textconf, max_procs=max_procs, lang=lang)
     else:

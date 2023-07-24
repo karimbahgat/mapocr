@@ -408,27 +408,34 @@ def sample_quads(bbox, samplesize):
     cx = (x1+x2)/2.0
     cy = (y1+y2)/2.0
     quads = Quad(cx, cy, w, h)
-    quads.split()
 
-    # sample quads in a rotating fashion until all parts of bbox has been covered by the samplesize
-    #xmin,ymin,xmax,ymax = min(x1,x2),min(y1,y2),max(x1,x2),max(y1,y2)
-    #sxmin,symin,sxmax,symax = cx,cy,cx,cy
-    intersects_centroid = 0
-    while True:
-        # sample 4 quads
-        for _ in range(4):
-            q = quads.sample()
-            sq = Quad(q.x, q.y, sw, sh)
-            yield sq
+    # only sample if w/h at least twice as large as samplesize
+    if w > (sw*2) and h > (sh*2):
+        quads.split()
 
-            # check if sample quad intersects the region centroid
-            _sxmin,_symin,_sxmax,_symax = sq.bbox()
-            if not (_sxmax < cx or _sxmin > cx or _symax < cy or _symin > cy):
-                intersects_centroid += 1
+        # sample quads in a rotating fashion until all parts of bbox has been covered by the samplesize
+        #xmin,ymin,xmax,ymax = min(x1,x2),min(y1,y2),max(x1,x2),max(y1,y2)
+        #sxmin,symin,sxmax,symax = cx,cy,cx,cy
+        intersects_centroid = 0
+        while True:
+            # sample 4 quads
+            for _ in range(4):
+                q = quads.sample()
+                sq = Quad(q.x, q.y, sw, sh)
+                yield sq
 
-        # when 4 sample quads touches the region centroid, the entire region has been covered
-        if intersects_centroid >= 4:
-            break
+                # check if sample quad intersects the region centroid
+                _sxmin,_symin,_sxmax,_symax = sq.bbox()
+                if not (_sxmax < cx or _sxmin > cx or _symax < cy or _symin > cy):
+                    intersects_centroid += 1
+
+            # when 4 sample quads touches the region centroid, the entire region has been covered
+            if intersects_centroid >= 4:
+                break
+
+    else:
+        # only return the top quad, ie original bbox
+        yield quads
 
 def iter_tiles(width, height, max_tile_size, tile_overlap=0.1):
     '''Dissect an image size into equally sized tiles and iterate through them'''
