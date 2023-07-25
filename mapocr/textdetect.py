@@ -149,7 +149,7 @@ def run_ocr(im, bbox=None, mode=11, lang=None):
         #     lang = '+'.join([l[0] for l in langs])
         # else:
         #     lang = 'eng' # default to english
-    print('lang', lang)
+    #print('lang', lang)
     data = pytesseract.image_to_data(im, lang=lang, config='--psm {}'.format(mode)) # +equ
     #data = pytesseract.image_to_data(im, lang='eng+fra', config='--psm {} --tessdata-dir "{}"'.format(mode, r'C:\Users\kimok\Desktop\tessdata_fast')) # +equ
     drows = [[v for v in row.split('\t')] for row in data.split('\n')]
@@ -524,7 +524,7 @@ def sample_texts(im, textcolors, threshold=25, textconf=60, samplesize=(1000,100
     im_bbox = 0, 0, im.width, im.height
     iter_samples = segmentation.sample_quads(im_bbox, (sw,sh))
     for i,q in enumerate(iter_samples):
-        if True: #verbose:
+        if verbose:
             #print('---')
             print('# sample',i,q)
 
@@ -533,6 +533,11 @@ def sample_texts(im, textcolors, threshold=25, textconf=60, samplesize=(1000,100
         _texts = exclude_edge_texts(_texts, samplebox)
         texts += _texts
 
+        # remove duplicates in overlapping areas
+        if verbose:
+            print('texts found so far', len(texts))
+        texts = remove_duplicate_texts(texts)
+
         # exit if meets minimum requirement
         if ((i+1) >= min_samples) and (len(texts) >= min_texts):
             break
@@ -540,9 +545,6 @@ def sample_texts(im, textcolors, threshold=25, textconf=60, samplesize=(1000,100
         # prevent from too much sampling
         if (i+1) >= max_samples:
             break
-
-    # remove duplicates in overlapping areas
-    texts = remove_duplicate_texts(texts)
     
     return texts
 
@@ -1074,11 +1076,11 @@ def auto_detect_text(im, textcolor=None, colorthresh=25, textconf=60, parallel=F
 
     # run text detection
     if sample:
-        texts = sample_texts(im, textcolors, threshold=colorthresh, textconf=textconf, samplesize=samplesize, min_texts=min_texts, max_samples=max_samples, lang=lang)
+        texts = sample_texts(im, textcolors, threshold=colorthresh, textconf=textconf, samplesize=samplesize, min_texts=min_texts, max_samples=max_samples, lang=lang, verbose=verbose)
     elif parallel:
-        texts = extract_texts_parallel(im, textcolors, threshold=colorthresh, textconf=textconf, max_procs=max_procs, lang=lang)
+        texts = extract_texts_parallel(im, textcolors, threshold=colorthresh, textconf=textconf, max_procs=max_procs, lang=lang, verbose=verbose)
     else:
-        texts = extract_texts_tiled(im, textcolors, threshold=colorthresh, textconf=textconf, max_imsize=max_imsize, lang=lang)
+        texts = extract_texts_tiled(im, textcolors, threshold=colorthresh, textconf=textconf, max_imsize=max_imsize, lang=lang, verbose=verbose)
     
 ##    for t in texts:
 ##        print t
