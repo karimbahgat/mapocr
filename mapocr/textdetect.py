@@ -150,7 +150,9 @@ def run_ocr(im, bbox=None, mode=11, lang=None):
         # else:
         #     lang = 'eng' # default to english
     #print('lang', lang)
-    data = pytesseract.image_to_data(im, lang=lang, config='--psm {}'.format(mode)) # +equ
+    config = '--psm {}'.format(mode) # page segmentation mode
+    config += ' -c tessedit_do_invert=0' # by default also scans for inverted text, turn off (speedup)
+    data = pytesseract.image_to_data(im, lang=lang, config=config)
     #data = pytesseract.image_to_data(im, lang='eng+fra', config='--psm {} --tessdata-dir "{}"'.format(mode, r'C:\Users\kimok\Desktop\tessdata_fast')) # +equ
     drows = [[v for v in row.split('\t')] for row in data.split('\n')]
     dfields = drows.pop(0)
@@ -526,7 +528,7 @@ def sample_texts(im, textcolors, threshold=25, textconf=60, samplesize=(1000,100
     for i,q in enumerate(iter_samples):
         if verbose:
             #print('---')
-            print('# sample',i,q)
+            print('# sample',i+1,q)
 
         samplebox = q.bbox()
         _texts = extract_texts(im, textcolors, bbox=samplebox, threshold=threshold, textconf=textconf, lang=lang)
