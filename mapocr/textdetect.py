@@ -27,20 +27,26 @@ def detect_script(im):
         # some special quirks to osd detection, like it has to be saved to disk
         # and min_characters_to_try should be lowered
         # https://stackoverflow.com/questions/54047116/getting-an-error-when-using-the-image-to-osd-method-with-pytesseract
-        # however, turns out loweing min_characters_to_try reduces osd accuracy
+        # however, turns out lowering min_characters_to_try reduces osd accuracy
         temppath = tempfile.mktemp(suffix='.png')
         im.save(temppath)
-        osd = pytesseract.image_to_osd(temppath) #, config='-l eng -c min_characters_to_try=5')
+        config = '-c min_characters_to_try=300' # increase min chars for improved osd
+        osd = pytesseract.image_to_osd(temppath, config=config)
         script = re.search("Script: ([a-zA-Z]+)\n", osd).group(1)
         conf = re.search("Script confidence: (\d+\.?(\d+)?)", osd).group(1)
         conf = float(conf)
-        # script detection isn't very good, only respect if good confidence
-        min_conf = 2.0
-        if conf < min_conf:
-            script,conf =  None, 0.0
 
     except:
-        script,conf =  None, 0.0
+        # too few characters, try lowering min chars
+        try:
+            config = '-c min_characters_to_try=100' # increase min chars for improved osd
+            osd = pytesseract.image_to_osd(temppath, config=config)
+            script = re.search("Script: ([a-zA-Z]+)\n", osd).group(1)
+            conf = re.search("Script confidence: (\d+\.?(\d+)?)", osd).group(1)
+            conf = float(conf)
+        except:
+            # script detection failed
+            script,conf =  None, 0.0
     
     finally:
         try: os.remove(temppath)
@@ -109,17 +115,26 @@ def run_ocr(im, bbox=None, mode=11, lang=None, verbose=False):
     if bbox:
         xoff,yoff = bbox[:2]
         im = im.crop(bbox)
+
     if not lang:
         # autodetect script
         lang,conf = detect_script(im)
         if lang:
+            # script detected
             if verbose:
                 print(f'detected {lang} script (confidence: {conf:.1f})')
+            # ensure confidence level
+            min_conf = 0.5
+            if conf < min_conf:
+                lang = 'Latin'
+                if verbose:
+                    print(f'script confidence too low, defaulting to {lang}')
         else:
-            # default to latin alphabet
+            # script detection failed
             lang = 'Latin'
             if verbose:
                 print(f'failed to detect script, defaulting to {lang}')
+    
     config = '--psm {}'.format(mode) # page segmentation mode
     config += ' -c tessedit_do_invert=0' # by default also scans for inverted text, turn off (speedup)
     if verbose:
