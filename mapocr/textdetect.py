@@ -8,6 +8,7 @@ from PIL import ImageOps
 import re
 import json
 import os
+import tempfile
 
 import pytesseract
 
@@ -26,132 +27,103 @@ def detect_script(im):
         # some special quirks to osd detection, like it has to be saved to disk
         # and min_characters_to_try should be lowered
         # https://stackoverflow.com/questions/54047116/getting-an-error-when-using-the-image-to-osd-method-with-pytesseract
-        if hasattr(im, 'save'):
-            im.save('temp.png')
-        osd = pytesseract.image_to_osd(im, config='-c min_characters_to_try=10')
+        # however, turns out loweing min_characters_to_try reduces osd accuracy
+        temppath = tempfile.mktemp(suffix='.png')
+        im.save(temppath)
+        osd = pytesseract.image_to_osd(temppath) #, config='-l eng -c min_characters_to_try=5')
         script = re.search("Script: ([a-zA-Z]+)\n", osd).group(1)
         conf = re.search("Script confidence: (\d+\.?(\d+)?)", osd).group(1)
-        return script, float(conf)
-    except e:
-        return None, 0.0
+        conf = float(conf)
+        # script detection isn't very good, only respect if good confidence
+        min_conf = 2.0
+        if conf < min_conf:
+            script,conf =  None, 0.0
 
-def script_to_lang(script):
-    # mapping from tesseract script names to iso3 langs
-    dct = {'Arabic':'ara',
-           'Armenian':'hye',
-           'Bengali':'ben',
-           'Canadian_Aboriginal':None,
-           'Cherokee':'chr',
-           'Cyrillic':'rus+uzb_cyrl+aze_cyrl+bel+ukr+bul+srp+mkd+taj+kaz+kir+tat',
-           'Devanagari':'mar+san+hin+nep+snd',
-           'Ethiopic':'amh+tir',
-           'Fraktur':None,
-           'Georgian':'kat',
-           'Greek':'ell',
-           'Gujarati':None,
-           'Gurmukhi':None,
-           'HanS':'chi_sim',
-           'HanS_vert':'chi_sim_vert',
-           'HanT':'chi_tra',
-           'HanT_vert':'chi_tra_vert',
-           'Hangul':'kor',
-           'Hangul_vert':'kor_vert',
-           'Hebrew':'heb',
-           'Japanese':'jpn',
-           'Japanese_vert':'jpn',
-           'Kannada':'kan',
-           'Khmer':'khm',
-           'Lao':'lao',
-           'Latin':'lat',
-           'Malayalam':'mal',
-           'Myanmar':'mya',
-           'Oriya':'ori',
-           'Sinhala':'sin',
-           'Syriac':'syr',
-           'Tamil':'tam',
-           'Telugu':'tel',
-           'Thaana':None,
-           'Thai':'tha',
-           'Tibetan':'bod',
-           'Vietnamese':'vie',
-           }
-    return dct[script]
+    except:
+        script,conf =  None, 0.0
+    
+    finally:
+        try: os.remove(temppath)
+        except: pass
+    
+    return script,conf
 
-def detect_language(im):
-    # autodetect best lang function
-    # https://nanonets.com/blog/ocr-with-tesseract/#:~:text=Unfortunately%20tesseract%20does%20not%20have,can%20be%20installed%20via%20pip.
-    # https://stackoverflow.com/questions/70198974/how-to-detect-language-or-script-from-an-input-image-using-python-or-tesseract-o
-    # ALT1: based on script detection
-    if 0:
-        # get script
-        script, confidence = detect_script(im)
-        # map all script names to lang names (https://github.com/tesseract-ocr/tessdata/tree/main/script)
-        lang = script_to_lang(script)
-        # do ocr using the script-lang detected from script
-        from langdetect import detect_langs, DetectorFactory
-        DetectorFactory.seed = 0 # this might have to happen at top of script? 
-        langprobs = detect_langs(txt)
-        langs = [langprob.lang for langprob in langprobs]
-    # ALT2: based on osd language, which picks up multiple languages 
-    # but is not very accurate
-    else:
-        # detect arbitrary languages with osd-language
-        texts = run_ocr(im, mode=12, lang='osd')
-        texts = [t['text'] for t in texts
-                if t['conf']>0.6 and len(t['text'])>=2]
-        print('detecting languages based on', texts)
-        # classify the language based on detected texts
-        from langdetect import detect_langs, DetectorFactory
-        DetectorFactory.seed = 0 # this might have to happen at top of script? 
-        langcounts = {}
-        for text in texts:
-            try:
-                langprobs = detect_langs(text)
-            except:
-                continue
-            best = langprobs[0]
-            lang,prob = best.lang, best.prob
-            lang = lang.split('-')[0] # ignore parts after dash
-            lang = lang.replace('ko','zh') # hacky make korean to chinese
-            if prob > 0.9:
-                count = langcounts.get(lang, 0)
-                langcounts[lang] = count + 1
-        langs = sorted(langcounts.items(), key=lambda x: x[1], reverse=True)
-        # look for any language with more than one texts detected... 
-        langs = [(lang,count) for lang,count in langs if count >= 2]
+# def detect_language(im):
+#     # autodetect best lang function
+#     # https://nanonets.com/blog/ocr-with-tesseract/#:~:text=Unfortunately%20tesseract%20does%20not%20have,can%20be%20installed%20via%20pip.
+#     # https://stackoverflow.com/questions/70198974/how-to-detect-language-or-script-from-an-input-image-using-python-or-tesseract-o
+#     # ALT1: based on script detection
+#     if 0:
+#         # get script
+#         script, confidence = detect_script(im)
+#         # map all script names to lang names (https://github.com/tesseract-ocr/tessdata/tree/main/script)
+#         lang = script_to_lang(script)
+#         # do ocr using the script-lang detected from script
+#         from langdetect import detect_langs, DetectorFactory
+#         DetectorFactory.seed = 0 # this might have to happen at top of script? 
+#         langprobs = detect_langs(txt)
+#         langs = [langprob.lang for langprob in langprobs]
+#     # ALT2: based on osd language, which picks up multiple languages 
+#     # but is not very accurate
+#     else:
+#         # detect arbitrary languages with osd-language
+#         texts = run_ocr(im, mode=12, lang='osd')
+#         texts = [t['text'] for t in texts
+#                 if t['conf']>0.6 and len(t['text'])>=2]
+#         print('detecting languages based on', texts)
+#         # classify the language based on detected texts
+#         from langdetect import detect_langs, DetectorFactory
+#         DetectorFactory.seed = 0 # this might have to happen at top of script? 
+#         langcounts = {}
+#         for text in texts:
+#             try:
+#                 langprobs = detect_langs(text)
+#             except:
+#                 continue
+#             best = langprobs[0]
+#             lang,prob = best.lang, best.prob
+#             lang = lang.split('-')[0] # ignore parts after dash
+#             lang = lang.replace('ko','zh') # hacky make korean to chinese
+#             if prob > 0.9:
+#                 count = langcounts.get(lang, 0)
+#                 langcounts[lang] = count + 1
+#         langs = sorted(langcounts.items(), key=lambda x: x[1], reverse=True)
+#         # look for any language with more than one texts detected... 
+#         langs = [(lang,count) for lang,count in langs if count >= 2]
 
-    # convert from iso2 to iso3 langs
-    # NOTE: might have to lookup alternative '639-2/B' for some langs
-    datafold = os.path.dirname(os.path.abspath(__file__))
-    with open(datafold+'/data/'+'iso-langs.json', encoding='utf8') as fobj:
-        lang2to3 = json.loads(fobj.read())
-    langs = [(lang2to3[l]['639-2'],c) 
-            for l,c in langs
-            if l in lang2to3] # convert from iso2 to iso3
-    langs = [(l.replace('zho','chi_sim'),c) 
-            for l,c in langs] # manual override to special tesseract chinese code
-    return langs
+#     # convert from iso2 to iso3 langs
+#     # NOTE: might have to lookup alternative '639-2/B' for some langs
+#     datafold = os.path.dirname(os.path.abspath(__file__))
+#     with open(datafold+'/data/'+'iso-langs.json', encoding='utf8') as fobj:
+#         lang2to3 = json.loads(fobj.read())
+#     langs = [(lang2to3[l]['639-2'],c) 
+#             for l,c in langs
+#             if l in lang2to3] # convert from iso2 to iso3
+#     langs = [(l.replace('zho','chi_sim'),c) 
+#             for l,c in langs] # manual override to special tesseract chinese code
+#     return langs
 
-def run_ocr(im, bbox=None, mode=11, lang=None):
+def run_ocr(im, bbox=None, mode=11, lang=None, verbose=False):
     # maybe consider mode 12, parse text with osd
     # detects multiple scripts, but not as accurate... 
     if bbox:
         xoff,yoff = bbox[:2]
         im = im.crop(bbox)
     if not lang:
-        # unless specified, assume english
-        lang = 'eng'
-        # or autodetect language
-        # langs = detect_language(im)
-        # print('detected language counts', langs)
-        # #langs = langs[:1] # top first only
-        # if langs:
-        #     lang = '+'.join([l[0] for l in langs])
-        # else:
-        #     lang = 'eng' # default to english
-    #print('lang', lang)
+        # autodetect script
+        lang,conf = detect_script(im)
+        if lang:
+            if verbose:
+                print(f'detected {lang} script (confidence: {conf:.1f})')
+        else:
+            # default to latin alphabet
+            lang = 'Latin'
+            if verbose:
+                print(f'failed to detect script, defaulting to {lang}')
     config = '--psm {}'.format(mode) # page segmentation mode
     config += ' -c tessedit_do_invert=0' # by default also scans for inverted text, turn off (speedup)
+    if verbose:
+        print(f'running ocr for lang={lang}')
     data = pytesseract.image_to_data(im, lang=lang, config=config)
     #data = pytesseract.image_to_data(im, lang='eng+fra', config='--psm {} --tessdata-dir "{}"'.format(mode, r'C:\Users\kimok\Desktop\tessdata_fast')) # +equ
     drows = [[v for v in row.split('\t')] for row in data.split('\n')]
@@ -376,7 +348,7 @@ def sniff_text_colors(im, seginfo=None, min_samples=4, max_samples=4+4**2, max_t
         # upscale and run ocr
         lup = l.resize((l.size[0]*2,l.size[1]*2), PIL.Image.LANCZOS)
         #lup.show()
-        data = run_ocr(lup, lang=lang)
+        data = run_ocr(lup, lang=lang, verbose=verbose)
 
         # loop detected texts
         for text in data:
@@ -531,7 +503,7 @@ def sample_texts(im, textcolors, threshold=25, textconf=60, samplesize=(1000,100
             print('# sample',i+1,q)
 
         samplebox = q.bbox()
-        _texts = extract_texts(im, textcolors, bbox=samplebox, threshold=threshold, textconf=textconf, lang=lang)
+        _texts = extract_texts(im, textcolors, bbox=samplebox, threshold=threshold, textconf=textconf, lang=lang, verbose=verbose)
         _texts = exclude_edge_texts(_texts, samplebox)
         texts += _texts
 
@@ -606,6 +578,7 @@ def extract_texts_parallel(im, textcolors, threshold=25, textconf=60, max_procs=
                                                textconf=textconf,
                                                bbox=box,
                                                lang=lang,
+                                               verbose=verbose,
                                                ),
                                      )
                 procs.append(p)
@@ -687,7 +660,7 @@ def extract_texts_tiled(im, textcolor, threshold=25, textconf=60, max_imsize=Non
     for i,tilebox in enumerate(tiles):
         if verbose:
             print('processing img tile', tilebox, i+1, 'of', len(tiles))
-        _texts = extract_texts(im, textcolor, bbox=tilebox, threshold=threshold, textconf=textconf, lang=lang)
+        _texts = extract_texts(im, textcolor, bbox=tilebox, threshold=threshold, textconf=textconf, lang=lang, verbose=verbose)
         _texts = exclude_edge_texts(_texts, tilebox)
         texts += _texts
 
@@ -771,9 +744,7 @@ def extract_texts(im, textcolor, threshold=25, textconf=60, bbox=None, lang=None
         #PIL.Image.fromarray(imarr).show()
         
         # detect text
-        if verbose:
-            print('running ocr')
-        data = run_ocr(lmaskim, lang=lang)
+        data = run_ocr(lmaskim, lang=lang, verbose=verbose)
         if verbose:
             print('processing text')
         for text in data:
