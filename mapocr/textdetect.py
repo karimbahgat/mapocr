@@ -356,6 +356,9 @@ def sniff_text_colors(im, seginfo=None, min_samples=4, max_samples=4+4**2, max_t
         x1,y1,x2,y2 = q.bbox()
         sample = im.crop((x1,y1,x2,y2))
 
+        # adjust contrast
+        sample = segmentation.auto_contrast(sample, cutoff=2, preserve_tone=True)
+
         # convert to luminance
         lab = segmentation.rgb_to_lab(sample)
         l,a,b = lab.split()
@@ -706,13 +709,20 @@ def extract_texts(im, textcolor, threshold=25, textconf=60, bbox=None, lang=None
     # extract from entire image
     w,h = im.size
     texts = []
-    
+
+    # adjust contrast
+    if verbose:
+        print('adjusting contrast')
+    im = segmentation.auto_contrast(im, cutoff=2, preserve_tone=True)
+    #im.show()
+
     # upscale
     if verbose:
         print('upscaling')
     upscale = im.resize((im.size[0]*2,im.size[1]*2), PIL.Image.LANCZOS)
     #lab = segmentation.rgb_to_lab(upscale)
     #l,a,b = lab.split()
+    # quantize
     upscale = segmentation.quantize(upscale)
     #upscale.show()
 

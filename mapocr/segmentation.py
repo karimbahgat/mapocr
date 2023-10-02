@@ -127,6 +127,16 @@ def quantize(im):
     quant = im.convert('P', palette=PIL.Image.ADAPTIVE, colors=256).convert('RGB')
     return quant
 
+def increase_contrast(im, factor):
+    from PIL import ImageEnhance
+    im = ImageEnhance.Contrast(im).enhance(factor)
+    return im
+
+def auto_contrast(im, **kwargs):
+    from PIL import ImageOps
+    im = ImageOps.autocontrast(im, **kwargs)
+    return im
+
 def mask_image(im, poly, invert=False):
     mask = np.zeros((im.size[1], im.size[0]))
     cv2.drawContours(mask, [poly], -1, 255, -1)
