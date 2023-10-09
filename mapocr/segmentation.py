@@ -129,11 +129,15 @@ def quantize(im):
 
 def increase_contrast(im, factor):
     from PIL import ImageEnhance
+    if im.mode != 'RGB':
+        im = im.convert('RGB')
     im = ImageEnhance.Contrast(im).enhance(factor)
     return im
 
 def auto_contrast(im, **kwargs):
     from PIL import ImageOps
+    if im.mode != 'RGB':
+        im = im.convert('RGB')
     im = ImageOps.autocontrast(im, **kwargs)
     return im
 
